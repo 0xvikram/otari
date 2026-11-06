@@ -909,10 +909,23 @@ export function useOrganizationSso(enabled = true) {
   })
 }
 
+// Returned rather than discarded, so a mutation settles only once the refetch has landed: a
+// caller that remounts on success would otherwise re-read the value it just replaced.
 function invalidateOrganizationSso(
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
-  void queryClient.invalidateQueries({ queryKey: [ORGANIZATION_SSO] })
+  return queryClient.invalidateQueries({ queryKey: [ORGANIZATION_SSO] })
+}
+
+// Storing, removing or enforcing a connection each move who enforcement would affect. Testing one
+// moves nothing.
+function invalidateOrganizationSsoAndPreflight(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  return Promise.all([
+    invalidateOrganizationSso(queryClient),
+    queryClient.invalidateQueries({ queryKey: [ORGANIZATION_SSO_PREFLIGHT] }),
+  ])
 }
 
 export function useSaveOrganizationSso() {
@@ -923,7 +936,7 @@ export function useSaveOrganizationSso() {
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidateOrganizationSso(queryClient),
+    onSuccess: () => invalidateOrganizationSsoAndPreflight(queryClient),
   })
 }
 
@@ -943,7 +956,7 @@ export function useDeleteOrganizationSso() {
   return useMutation({
     mutationFn: () =>
       apiFetch<void>("/organizations/me/sso", { method: "DELETE" }),
-    onSuccess: () => invalidateOrganizationSso(queryClient),
+    onSuccess: () => invalidateOrganizationSsoAndPreflight(queryClient),
   })
 }
 
@@ -968,7 +981,7 @@ export function useSetOrganizationSsoEnforcement() {
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => invalidateOrganizationSso(queryClient),
+    onSuccess: () => invalidateOrganizationSsoAndPreflight(queryClient),
   })
 }
 
