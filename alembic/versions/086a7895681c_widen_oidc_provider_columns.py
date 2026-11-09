@@ -12,7 +12,7 @@ connection is named by its issuer URL instead, which does not fit in 50 or
 plain ``ALTER COLUMN`` on PostgreSQL, so one form works on both engines.
 
 Revision ID: 086a7895681c
-Revises: 90b7e153c41f
+Revises: b3e7d1a9c5f2
 Create Date: 2026-11-03
 """
 
