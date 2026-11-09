@@ -24,10 +24,12 @@ from apron_auth import (
     StoredStateClient,
     TokenExchangeError,
 )
+from apron_auth.errors import ConfigurationError
 from apron_auth.models import OAuthPendingState as PendingState
 from apron_auth.providers import oidc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gateway.exceptions.identity_exceptions import SsoNotAddressableError
 from gateway.models.identity import OIDCConnection, oidc_flow_provider
 from gateway.services.identity._discovery import DiscoveredProvider
 from gateway.services.oauth_service import DatabaseStateStore, pending_flow_provider, provider_refused_the_code
@@ -144,7 +146,12 @@ def client_for(
     this deployment. A real exchange then fails inside ``httpx2``'s own response handling with an
     unrelated ``AssertionError`` rather than a classified apron-auth error.
     """
-    config = _provider_config_for(connection, metadata, redirect_uri=redirect_uri)
+    try:
+        config = _provider_config_for(connection, metadata, redirect_uri=redirect_uri)
+    except ConfigurationError as error:
+        # The library holds the rule, RFC 8252, so its refusal is translated here rather than
+        # restated: a deployment with no https address of its own cannot be signed in to.
+        raise SsoNotAddressableError from error
     handler = identity_handler_for(metadata, allow_private_hosts=allow_private_hosts)
     state_store = DatabaseStateStore(db, oidc_flow_provider(connection.id))
     return StoredStateClient(
