@@ -296,7 +296,8 @@ class DatabaseStateStore:
             return None
         if expires_at <= datetime.now(UTC):
             return None
-        if nonce is None and "openid" in _PROVIDERS[provider].scopes:
+        preset = _PROVIDERS.get(provider)
+        if nonce is None and preset is not None and "openid" in preset.scopes:
             # Minted before the column existed. apron-auth would refuse it as a
             # nonce failure; as a state no longer pending, the person is told to
             # start again.
