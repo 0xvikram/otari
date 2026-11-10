@@ -883,6 +883,72 @@ async def test_stream_loop_runs_mcp_tool_and_continues(monkeypatch: pytest.Monke
     assert pool.calls == [("fetch_url", {})]
 
 
+_PROGRAM = 'rows = [("a", 3), ("b", 4)]\nprint(sum(n for _, n in rows))\n'
+_PROGRAM_ARGS = json.dumps({"code": _PROGRAM})
+_PROGRAM_FRAGMENTS = [_PROGRAM_ARGS[:3], _PROGRAM_ARGS[3:17], _PROGRAM_ARGS[17:40], _PROGRAM_ARGS[40:]]
+
+
+def _code_stream(shape: str) -> list[ChatCompletionChunk]:
+    """One round calling code execution, its arguments delivered the way ``shape`` names.
+
+    Each shape is one that OpenAI-compatible servers (vLLM and SGLang, which DeepInfra and
+    others run, as well as OpenAI itself) send for a single tool call.
+    """
+    name = CODE_EXECUTION_TOOL_NAME
+    head = _chunk(tool_calls=[(0, "call_1", name, "")])
+    if shape == "split_fragments":
+        return [
+            head,
+            *(_chunk(tool_calls=[(0, None, None, p)]) for p in _PROGRAM_FRAGMENTS),
+            _chunk(finish="tool_calls"),
+        ]
+    if shape == "id_on_every_chunk":
+        return [
+            head,
+            *(_chunk(tool_calls=[(0, "call_1", None, p)]) for p in _PROGRAM_FRAGMENTS),
+            _chunk(finish="tool_calls"),
+        ]
+    if shape == "arguments_beside_the_name":
+        return [_chunk(tool_calls=[(0, "call_1", name, _PROGRAM_ARGS)]), _chunk(finish="tool_calls")]
+    if shape == "arguments_on_the_finish_chunk":
+        return [head, _chunk(tool_calls=[(0, None, None, _PROGRAM_ARGS)], finish="tool_calls")]
+    if shape == "arguments_after_the_finish_chunk":
+        return [head, _chunk(finish="tool_calls"), _chunk(tool_calls=[(0, None, None, _PROGRAM_ARGS)])]
+    raise AssertionError(shape)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "split_fragments",
+        "id_on_every_chunk",
+        "arguments_beside_the_name",
+        "arguments_on_the_finish_chunk",
+        "arguments_after_the_finish_chunk",
+    ],
+)
+async def test_stream_loop_runs_the_whole_program_however_its_arguments_arrive(
+    monkeypatch: pytest.MonkeyPatch, shape: str
+) -> None:
+    streams = iter([_async_iter(*_code_stream(shape)), _async_iter(_chunk(content="7", finish="stop"))])
+
+    async def fake_acompletion(**kwargs: Any) -> AsyncIterator[ChatCompletionChunk]:
+        return next(streams)
+
+    monkeypatch.setattr(mcp_loop_module, "acompletion", fake_acompletion)
+    pool = _FakePool(tool_names=[CODE_EXECUTION_TOOL_NAME])
+
+    async for _ in mcp_tool_loop_stream(
+        completion_kwargs={"model": "fake", "messages": [{"role": "user", "content": "sum it"}]},
+        pool=pool,
+        max_iterations=3,
+    ):
+        pass
+
+    assert pool.calls == [(CODE_EXECUTION_TOOL_NAME, {"code": _PROGRAM})]
+
+
 def _activity_of(chunks: list[ChatCompletionChunk]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for c in chunks:
