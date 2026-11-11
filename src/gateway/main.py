@@ -315,7 +315,9 @@ def _start_reservation_sweeper(config: GatewayConfig, _container: Container) -> 
     )
 
 
-def _resolve_file_store(config: GatewayConfig, container: Container) -> FileStoragePort | None:
+def _resolve_file_store(
+    config: GatewayConfig, container: Container, advisory_level: int = logging.WARNING
+) -> FileStoragePort | None:
     """Build the file store, or start without one where files are off and it cannot be built.
 
     A store that cannot be built stops the boot while files are on, because every
@@ -323,9 +325,12 @@ def _resolve_file_store(config: GatewayConfig, container: Container) -> FileStor
     ``file_id`` no longer resolves, so the deployment starts and says so rather
     than locking out an operator who turned files off and removed the bucket
     the settings still point at.
+
+    A local directory with files on is said, at ``advisory_level``, to serve a
+    single node, since the process cannot tell how many replicas share its database.
     """
     try:
-        return container.resolve(FileStoragePort, None)
+        store = container.resolve(FileStoragePort, None)
     except ValueError as exc:
         if config.files_enabled:
             raise
@@ -334,6 +339,15 @@ def _resolve_file_store(config: GatewayConfig, container: Container) -> FileStor
             exc,
         )
         return None
+    if config.files_enabled and config.files_backend.strip().lower() == "local":
+        logger.log(
+            advisory_level,
+            "The 'local' files backend keeps uploaded bytes in %s on this node only, so it serves a single node: "
+            "another replica, or this one after its filesystem is replaced, answers 404 for a file stored here. "
+            "Set files_backend to 's3' or 'fsspec' for more than one replica or an ephemeral filesystem.",
+            config.files_local_dir,
+        )
+    return store
 
 
 def _resolve_trace_content(config: GatewayConfig, container: Container) -> SpanContent:
@@ -1134,7 +1148,7 @@ def _create_lifespan() -> Callable[[FastAPI], Any]:
         log_writer = create_log_writer(config.log_writer_strategy, container.resolve(UsageSignalPort, None))
         # The retention sweep below resolves this same port, so both it and
         # the request path use whatever store this build bound.
-        app.state.file_store = _resolve_file_store(config, container)
+        app.state.file_store = _resolve_file_store(config, container, advisory_level)
         app.state.trace_content = _resolve_trace_content(config, container)
         app.state.provider_files = container.resolve(ProviderFilePort, None)
         workers = _start_lifespan_workers(config, container)

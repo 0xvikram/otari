@@ -66,3 +66,39 @@ async def test_lifespan_starts_with_files_off_and_no_bucket(tmp_path: Path) -> N
 
     async with _create_lifespan()(app):
         assert app.state.file_store is None
+
+
+def _single_node_levels(config: GatewayConfig, caplog: pytest.LogCaptureFixture, advisory_level: int) -> list[int]:
+    """The levels the single-node note was logged at while ``config``'s store was built."""
+    gateway_logger = logging.getLogger("gateway")
+    gateway_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.DEBUG, logger="gateway"):
+            _resolve_file_store(config, build_container(config=config), advisory_level)
+    finally:
+        gateway_logger.removeHandler(caplog.handler)
+    return [record.levelno for record in caplog.records if "single node" in record.getMessage()]
+
+
+def test_files_on_a_local_directory_warns_that_it_serves_a_single_node(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Each replica holds its own directory, so a second one 404s a file the first stored."""
+    config = GatewayConfig(files_enabled=True, files_backend="local", files_local_dir=str(tmp_path))
+
+    assert _single_node_levels(config, caplog, logging.WARNING) == [logging.WARNING]
+
+
+def test_a_first_start_holds_the_single_node_warning_back(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A zero-config first start stays quiet, as it does for the other setup advisories."""
+    config = GatewayConfig(files_enabled=True, files_backend="local", files_local_dir=str(tmp_path))
+
+    assert _single_node_levels(config, caplog, logging.DEBUG) == [logging.DEBUG]
+
+
+def test_files_off_on_a_local_directory_says_nothing_of_a_single_node(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    config = GatewayConfig(files_enabled=False, files_backend="local", files_local_dir=str(tmp_path))
+
+    assert _single_node_levels(config, caplog, logging.WARNING) == []

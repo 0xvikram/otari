@@ -401,7 +401,8 @@ manual reconciliation.
 database either way.
 
 - `local`, the default, writes under `files_local_dir`. Use it for development
-  and for a single node.
+  and for a single node: each replica holds its own directory, so with files on
+  every start after the first logs a warning that names this limit.
 - `s3` writes to `files_s3_bucket` through boto3. Use it for AWS S3 and for
   S3-compatible stores, such as the SeaweedFS below; `files_s3_endpoint_url`
   names a store that is not AWS. Credentials come from boto3's standard chain:

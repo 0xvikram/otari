@@ -1140,7 +1140,8 @@ class GatewayConfig(
         default="local",
         description=(
             "Blob backend for uploaded file bytes: 'local' (a directory), 's3' (boto3), or 'fsspec' "
-            "(any filesystem fsspec has an implementation for, named by files_url)."
+            "(any filesystem fsspec has an implementation for, named by files_url). 'local' serves a single "
+            "node: each replica holds its own directory, and with files on every start after the first warns so."
         ),
     )
     files_local_dir: Annotated[str, Shown(SettingsGroup.FILES)] = Field(
